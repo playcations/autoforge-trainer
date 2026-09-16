@@ -1,0 +1,27 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const store=new Map(),context={window:{},Date,localStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v)}};
+vm.createContext(context);for(const file of ['trainer-catalog.js','research-editor.js','test-lab.js'])vm.runInContext(fs.readFileSync(__dirname+'/'+file,'utf8'),context);
+const research=context.window.__autoForgeResearch,catalog=context.window.__autoForgeCatalog;
+const fresh=()=>({forge:{level:24},core:{age:8,level:1,last:800},player:{ingame_time:12000},inventory:{items:{tech_currency:400}},technos:Object.fromEntries(['forge','power','skills','pets'].map(tree=>[tree,{nodes:{},layers:0}]))});
+const base=fresh();base.technos.forge.nodes[1]=[3,0];
+const draft=research.createDraft();assert(draft.add(base,'forge','1'));assert.equal(base.technos.forge.nodes[1][0],3,'Draft must not change actual state');
+assert(!draft.add(base,'forge','3'),'Both parent nodes are required');assert(draft.add(base,'forge','2'));assert(draft.add(base,'forge','3'),'Parents need level 1, not maximum, as in the native game');
+assert(draft.add(base,'skills','1'));assert(draft.add(base,'pets','1'));assert(draft.add(base,'power','1'));
+const plan=draft.plan(base),validation=research.validate(base,plan);assert.equal(validation.changes.length,6);
+draft.undo();assert(!draft.plan(base).trees.power);draft.reset();assert.equal(Object.keys(draft.plan(base).trees).length,0);assert(!draft.canUndo);
+function execute(options,state=base,loaded=state){store.clear();let lab=context.window.__autoForgeTestLabFactory(()=>{});const id=lab.identity('research-fixture');lab.bind(id);lab.observe(state);const armed=lab.arm('research_nodes',options);lab=context.window.__autoForgeTestLabFactory(()=>{});const input=JSON.stringify({status:0,data:{data:loaded}}),output=lab.transform(input,id);return {lab,id,armed,input,output,state:JSON.parse(output).data.data};}
+let result=execute(plan);assert(result.armed);assert.deepEqual(result.state.technos.forge.nodes,{'1':[4,0],'2':[1,0],'3':[1,0]});assert.deepEqual(result.state.technos.power.nodes,{'1':[1,0]});assert.deepEqual(result.state.inventory,base.inventory);assert.deepEqual(result.state.core,base.core);assert(!result.state.technos.forge.nodes[4]);
+result.lab.bind(result.id);result.lab.observe(result.state);result.lab.arm('restore');const restored=JSON.parse(result.lab.transform(JSON.stringify({status:0,data:{data:result.state}}),result.id)).data.data;assert.deepEqual(restored.technos,base.technos);
+const maxed=research.createDraft();for(let i=0;i<5;i++)assert(maxed.add(base,'power','1'));assert(!maxed.add(base,'power','1'));assert.equal(maxed.plan(base).trees.power[1],5);
+const compressed=fresh();compressed.technos.forge.layers=1;assert.equal(research.level(compressed,'forge','1'),5);const compactDraft=research.createDraft();assert(!compactDraft.add(compressed,'forge','1'));assert(compactDraft.add(compressed,'forge','3'));result=execute(compactDraft.plan(compressed),compressed);assert.equal(result.state.technos.forge.layers,1);assert(!result.state.technos.forge.nodes[1]);
+const newer=structuredClone(base);newer.technos.forge.nodes[1]=[5,0];result=execute(plan,base,newer);assert.equal(result.state.technos.forge.nodes[1][0],5,'Concurrent progress must not decrease');
+const stale=structuredClone(base);stale.technos.forge.nodes[1]=[2,0];result=execute(plan,base,stale);assert.equal(result.output,result.input,'Older research cancels the entire batch');assert.match(result.lab.summary().message,/older/);
+const active=structuredClone(base);active.technos.skills.nodes[2]=[0,1900000000];result=execute(plan,base,active);assert.equal(result.output,result.input,'Active research prevents partial changes across trees');
+const invalid=JSON.parse(JSON.stringify(plan));invalid.trees.forge[1]=6;assert(!execute(invalid).armed);
+const missingParent=JSON.parse(JSON.stringify(plan));delete missingParent.trees.forge[2];assert(!execute(missingParent).armed);
+const unknown=JSON.parse(JSON.stringify(plan));unknown.trees.forge[999]=1;assert(!execute(unknown).armed);
+const all=research.createDraft();for(const [tree,nodes]of Object.entries(catalog.research))for(const [id,node]of Object.entries(nodes).sort((a,b)=>a[1].layer-b[1].layer))while(all.preview(base,tree,id)<node.levels)assert(all.add(base,tree,id));
+result=execute(all.plan(base));assert(result.output!==result.input);for(const [tree,nodes]of Object.entries(catalog.research))for(const [id,node]of Object.entries(nodes))assert.equal(research.level(result.state,tree,id),node.levels);
+const compacted=fresh();for(const [tree,nodes]of Object.entries(catalog.research))compacted.technos[tree].layers=Math.max(...Object.values(nodes).map(n=>n.layer))+1;
+const verifier=context.window.__autoForgeTestLabFactory(()=>{});verifier.bind(result.id);verifier.observe(compacted,{source:'Load'});assert.equal(verifier.summary().outcome.type,'verified','Compacted completed trees are recognized on later server loads');
+console.log('PASS: per-node drafts, native prerequisites, all four trees, undo/reset, atomic batches, caps, compacted layers, no regressions, stale research rejection, active timer rejection, field restoration and server-load verification');

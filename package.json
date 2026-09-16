@@ -1,0 +1,14 @@
+{
+  "name": "autoforge-trainer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Game-themed Tampermonkey trainer and save inspector for AutoForge",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node build-userscript.cjs",
+    "start": "node serve-userscript.cjs",
+    "test": "node test.cjs && node test-lab.cjs && node expanded-tests.cjs && node progression-tests.cjs && node auto-reload-tests.cjs && node native-patch.cjs && node integrated-hooks.cjs && node runtime-diagnostic.cjs && node bridge-compatibility.cjs && node arena-tests.cjs && node advanced-account-tests.cjs && node research-editor-tests.cjs && node egg-tests.cjs && node skins-tests.cjs && node save-recovery-tests.cjs && node gear-tests.cjs && node resource-adventure-tests.cjs"
+  }
+}

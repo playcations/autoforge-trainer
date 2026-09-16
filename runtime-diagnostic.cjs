@@ -1,0 +1,12 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+let calls=0;
+const Module={calledRun:true,HEAPU8:new Uint8Array(8),ccall(){calls++;}};
+Object.defineProperty(Module,'secretGetter',{get(){throw Error('Getter invoked');}});
+const context={window:{Module,JsToDef:{send(){calls++;}}},Uint8Array,WebAssembly,Date};
+vm.createContext(context);vm.runInContext(fs.readFileSync(__dirname+'/runtime-diagnostic.js','utf8'),context);
+const result=context.window.__autoForgeRuntimeDiagnostic();
+assert.equal(result.engineStarted,true);assert.equal(result.byteHeapExposed,true);
+assert.equal(result.surfaces[0].accessorsSkipped,1);assert.equal(calls,0);
+assert.equal(result.surfaces[2].available,false);
+assert(!JSON.stringify(result).includes('0,0,0'));
+console.log('PASS: diagnostic skips getters and callbacks, exposes names/types only, handles absent surfaces');
